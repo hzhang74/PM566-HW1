@@ -1,0 +1,184 @@
+---
+title: "HW1"
+author: "Haoran Zhang"
+date: "2021/9/22"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(dtplyr)
+library(dplyr)
+library(readr)
+library(tidyverse)
+library(skimr)
+library(lubridate)
+library(leaflet)
+```
+## 1. Import and check the data.
+```{r}
+pm04 <- fread("ad_viz_plotval_data_2004.csv")
+
+pm19 <- fread("ad_viz_plotval_data_2019.csv")
+
+```
+Check the variables of 2004
+```{r}
+dim(pm04)
+names(pm04)
+str(pm04)
+head(pm04)
+tail(pm04)
+```
+Check the variables of 2019
+```{r}
+dim(pm19)
+names(pm19)
+str(pm19)
+head(pm19)
+tail(pm19)
+```
+Check the data of 2004
+```{r}
+pm04[,table(is.na(DMC))]
+pm04[,table(is.na(`Site ID`))]
+pm04[,table(is.na(DAILY_AQI_VALUE))]
+pm04[,table(is.na(lat))]
+pm04[,table(is.na(lon))]
+pm04[,range(lat)]
+pm04[,range(lon)]
+pm04[,range(DMC)]
+pm04 <- pm04[DMC>=0]
+```
+Check the data of 2019
+```{r}
+pm19[,table(is.na(DMC))]
+pm19[,table(is.na(`Site ID`))]
+pm19[,table(is.na(DAILY_AQI_VALUE))]
+pm19[,table(is.na(lat))]
+pm19[,table(is.na(lon))]
+pm19[,range(lat)]
+pm19[,range(lon)]
+pm19[,range(DMC)]
+pm19 <- pm19[DMC>=0]
+```
+
+## 2. Combine the two years of data into one data frame and add an year variable.
+```{r}
+pm_all <- rbind(pm04,pm19)
+pm_all$Date <- mdy(pm_all$Date)
+pm_all$year <- year(pm_all$Date)
+
+```
+## 3. Create a basic map in leaflet() that shows the locations of the sites (make sure to use different colors for each year). Summarize the spatial distribution of the monitoring sites.
+```{r}
+
+year.pal <- colorFactor(c('blue','red'), domain=pm_all$year)
+
+OB04<-pm_all[pm_all$year==2004]
+OB19<-pm_all[pm_all$year==2019]
+library(leaflet)
+leaflet(pm_all) %>% 
+  addProviderTiles('CartoDB.Positron') %>% 
+  addCircles(
+    data = OB04,
+    lat = ~lat, lng = ~lon, popup = "2004.",
+    opacity = 1, fillOpacity = 1, radius = 400, color = "blue"
+    ) %>%
+  addCircles(
+    data = OB19,
+    lat = ~lat, lng = ~lon, popup = "2019.",
+    opacity=0.5, fillOpacity=0.5, radius = 400, color = "red"
+    ) %>%
+  addLegend('bottomleft', pal=year.pal, values=pm_all$year,
+          title='Sites', opacity=1)
+```
+It seems that the number of sites in 2019 is much more than that of 2014, or maybe they just  overlap. These sites are distributed mostly around bay area and Southern California, while relatively few sites locate inland.
+
+## 4.Check for any missing or implausible values of PM2.5 in the combined dataset. Explore the proportions of each and provide a summary of any temporal patterns you see in these observations.
+We've cleared all negative readings before so we'll focus on high reading values.
+```{r}
+pm_all[,DMC_cat:=fifelse(DMC<60,"low-concen",
+                       fifelse(DMC<120,"mid-concen",
+                               "high-concen"))]
+table(pm_all$DMC_cat)
+```
+```{r}
+high<-pm_all[DMC>120]
+leaflet(pm_all) %>% 
+  addProviderTiles('CartoDB.Positron') %>%
+    addCircles(
+    data = high,
+    lat = ~lat, lng = ~lon, popup = ">120",
+    opacity = 1, fillOpacity = 1, radius = 400, color = "red"
+    ) 
+```
+There are five datapoints that are extremely high(>=120), four of them were measured from 07/18/2004 to 07/21/2004. Noticing that the data was observed at Yosemite Visitor Center, I checked the internet and noticed that a meadow fire took place during that time and maybe that was the cause of such extremely high PM2.5 concentration.
+
+## 5. Explore the main question of interest at three different spatial levels. Create exploratory plots (e.g. boxplots, histograms, line plots) and summary statistics that best suit each level of data. Be sure to write up explanations of what you observe in these data.
+Violin
+```{r}
+pm_all_norm<-pm_all[DMC<120]
+ggplot(pm_all_norm ,mapping=aes(y=DMC,x=1))+
+  geom_violin()+
+  facet_grid(~year)
+```
+
+summary
+```{r}
+pm_all_norm[!is.na(site)] %>%
+  ggplot() + 
+    stat_summary(mapping = aes(x = year, y = DMC),
+    fun.min = min,
+    fun.max = max,
+    fun = median)
+```
+Histogram
+```{r}
+ggplot(pm_all_norm, aes(x = DMC)) +
+  geom_histogram() +
+  facet_wrap(. ~ year)
+```
+From these graphs we can see there is a slight decrease of daily mean PM2.5 concentration over the last 15 years.
+
+```{r}
+ggplot( 
+  pm_all[!is.na(DMC)], 
+  mapping = aes( y = DMC, x = COUNTY, color = year)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle=90, hjust=1, vjust=1))
+```
+In this point graph, black dots represent readings in 2004 while blue dots represent readings in 2019. We can see that there is an significantly decrease of daily mean PM2.5 concentration over the 15 years.
+
+
+
+
+```{r}
+ggplot( 
+  pm_all[!is.na(DMC)],
+  mapping = aes( y = DMC, x = COUNTY)) +
+  geom_point() +
+  facet_wrap(. ~ year)+
+  theme(axis.text.x = element_text(angle=90, hjust=1, vjust=1,size = 5))
+```
+Sites in Los Angeles
+```{r}
+LAsites<-pm_all[COUNTY=="Los Angeles"]
+LAsites[!is.na(site)]
+ggplot( 
+  LAsites[!is.na(site)], 
+  mapping = aes( y = DMC, x = site)) +
+  geom_boxplot() +
+   facet_wrap(. ~ year)+
+ theme(axis.text.x = element_text(angle=90, hjust=1, vjust=0.1))
+```
+The first boxplot represents those data with missing sites thus should be ignored. For those with applicable sites, we can see that Los Angeles main street which had the highest daily mean PM2.5 concentration in 2004 has decreased during the 15-year period.
+
+## 6. Conclusion
+From those plots above, we can see that the daily mean PM2.5 concentration did decrease during the 15-year period.
